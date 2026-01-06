@@ -61,10 +61,10 @@ class VideoPlayerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun setVideoUri(uriString: String) {
-        val uri = Uri.parse(uriString)
+        val uri = uriString.toUri()
         _currentVideoUri.value = uri
         exoPlayer.addMediaItem(MediaItem.fromUri(uri))
-//        loadPlaylist(Uri.parse(uriString))
+        loadPlaylist(uri)
     }
 
     private fun loadPlaylist(currentUri: Uri) {

@@ -1,14 +1,10 @@
 package com.brizz.videoplayer.ui.screens
 
-import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.media.ThumbnailUtils
 import android.net.Uri
 import android.os.Bundle
-import android.provider.MediaStore
 import android.util.Log
-import android.util.Size
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -51,10 +47,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.rememberNavController
 import coil3.compose.AsyncImage
@@ -92,7 +87,12 @@ class VideoActivity : ComponentActivity() {
                     Column(modifier = Modifier.fillMaxSize()) {
 
                         TopAppBar(
-                            title = { Text(folderName) },
+                            title = { Text(
+                                folderName,
+                                maxLines = 1,
+                                overflow = TextOverflow.Clip
+
+                            ) },
                             navigationIcon = {
                                 IconButton(onClick = {
                                     if (!navController.navigateUp()) {
@@ -108,7 +108,9 @@ class VideoActivity : ComponentActivity() {
                             val index = videoList.indexOf(it)
                             PlayerActivity.videoList.clear()
                             PlayerActivity.videoList.addAll(videoList)
+                            Log.e(TAG, "onCreate: $index")
                             Intent(applicationContext, PlayerActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                 putExtra(EXTRA_CURRENT_INDEX, index) // Start with the first video
                                 startActivity(this)
                             }

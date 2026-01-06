@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.brizz.videoplayer.models.VideoInfo
@@ -95,14 +96,11 @@ class PlayerActivity : ComponentActivity() {
         val videoUri = intent?.data?.toString()
         val initialIndex = intent.getIntExtra(EXTRA_CURRENT_INDEX, 0)
 
-
-        viewModel.setPlayer(isVLCPlayer)
         viewModel.setVideoUris(videoList)
         viewModel.currentVideoIndex = initialIndex
 
         setContent {
             VlcVideoPlayerScreen(
-                videoUris = videoList,
                 initialIndex = initialIndex,
                 viewModel = viewModel,
                 onCompletion = {
@@ -120,9 +118,9 @@ class PlayerActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         if (isVLCPlayer) {
-           /* viewModel.mediaPlayer.stop()
-            viewModel.mediaPlayer.release()
-            viewModel.libVLC.release()*/
+            /* viewModel.mediaPlayer.stop()
+             viewModel.mediaPlayer.release()
+             viewModel.libVLC.release()*/
         } else {
             viewModel.exoPlayer.stop()
             viewModel.exoPlayer.release()
@@ -156,7 +154,6 @@ class PlayerActivity : ComponentActivity() {
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun VlcVideoPlayerScreen(
-    videoUris: List<VideoInfo>,
     initialIndex: Int,
     viewModel: PlayerViewModel,
     onCompletion: () -> Unit,
@@ -178,16 +175,15 @@ fun VlcVideoPlayerScreen(
     }
 
     // Initial playback
-    LaunchedEffect(videoUris, initialIndex) {
-        if (videoUris.isNotEmpty()) {
-            viewModel.playVideo(videoUris[initialIndex])
-            hideControlsDelayed()
-        }
+    LaunchedEffect(initialIndex) {
+        hideControlsDelayed()
+        viewModel.playVideo(viewModel.currentVideoIndex)
     }
 
     // Listen to completion event
     LaunchedEffect(Unit) {
         viewModel.errorEvent.collectLatest { event ->
+            Log.e(TAG, "VlcVideoPlayerScreen: $event")
             if (event == "Playback Ended") onCompletion()
         }
     }
@@ -200,21 +196,22 @@ fun VlcVideoPlayerScreen(
         // VLC video surface
         AndroidView(
             factory = {
-                /*if (viewModel.isVLCPlayer) {
-                    VLCVideoLayout(it).apply {
-                        viewModel.mediaPlayer.attachViews(this, null, true, false)
-                    }
-                } else {*/
-                    PlayerView(it).apply {
-                        player = viewModel.exoPlayer
-                        useController = false
-                        this.setShowNextButton(false)
-                        this.setShowFastForwardButton(false)
-                        this.setShowRewindButton(false)
-                        this.setShowPreviousButton(false)
-                        this.setShowPlayButtonIfPlaybackIsSuppressed(false)
-                    }
-//                }
+                PlayerView(it).apply {
+                    player = viewModel.exoPlayer
+                    useController = false
+                    this.setShowNextButton(false)
+                    this.setShowFastForwardButton(false)
+                    this.setShowRewindButton(false)
+                    this.setShowPreviousButton(false)
+                    this.setShowPlayButtonIfPlaybackIsSuppressed(false)
+                }
+            },
+            update = { view ->
+                // This ensures that if the player instance is swapped,
+                // the view is still pointing to the right one.
+                if (view.player != viewModel.exoPlayer) {
+                    view.player = viewModel.exoPlayer
+                }
             },
             modifier = Modifier
                 .fillMaxSize()
@@ -227,7 +224,7 @@ fun VlcVideoPlayerScreen(
                 }
         )
 
-        UIComponent(videoUris, viewModel, controlsVisible, onClose)
+        UIComponent(viewModel, controlsVisible, onClose)
 
     }
 
@@ -249,7 +246,6 @@ fun VlcVideoPlayerScreen(
 
 @Composable
 fun BoxScope.UIComponent(
-    videoUris: List<VideoInfo>,
     viewModel: PlayerViewModel,
     controlsVisible: Boolean,
     onClose: () -> Unit,
@@ -263,32 +259,32 @@ fun BoxScope.UIComponent(
         exit = fadeOut()
     ) {
         TopBarControls(
-            videoTitle = videoUris.getOrNull(viewModel.currentVideoIndex)?.name ?: "",
+            videoTitle = viewModel.currentItem,
             onClose = onClose
         )
     }
 
     // Center controls
 //    if (viewModel.isVLCPlayer)
-        AnimatedVisibility(
-            visible = controlsVisible,
-            modifier = Modifier.align(Alignment.Center),
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            CenterControls(viewModel = viewModel)
-        }
+    AnimatedVisibility(
+        visible = controlsVisible,
+        modifier = Modifier.align(Alignment.Center),
+        enter = fadeIn(),
+        exit = fadeOut()
+    ) {
+        CenterControls(viewModel = viewModel)
+    }
 
     // Bottom bar
 //    if (viewModel.isVLCPlayer)
-        AnimatedVisibility(
-            visible = controlsVisible,
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            BottomBarControls(viewModel = viewModel)
-        }
+    AnimatedVisibility(
+        visible = controlsVisible,
+        modifier = Modifier.align(Alignment.BottomCenter),
+        enter = fadeIn(),
+        exit = fadeOut()
+    ) {
+        BottomBarControls(viewModel = viewModel)
+    }
 
 }
 
@@ -405,7 +401,10 @@ fun BottomBarControls(viewModel: PlayerViewModel) {
             )
             Slider(
                 value = if (viewModel.totalDuration > 0)
-                    (viewModel.currentTime.toFloat() / viewModel.totalDuration.toFloat()).coerceIn(0f, 1f)
+                    (viewModel.currentTime.toFloat() / viewModel.totalDuration.toFloat()).coerceIn(
+                        0f,
+                        1f
+                    )
                 else 0f,
                 onValueChange = {
                     if (viewModel.totalDuration > 0) {

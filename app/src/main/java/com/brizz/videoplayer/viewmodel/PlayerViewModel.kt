@@ -17,6 +17,7 @@ import com.brizz.videoplayer.models.VideoInfo
 import com.brizz.videoplayer.ui.screens.Orientation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -26,182 +27,133 @@ import javax.inject.Inject
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext val context: Context,
-//    val libVLC: LibVLC, // Use the injected instance
-//    val mediaPlayer: MediaPlayer, // Use the injected instance
-    val exoPlayer: ExoPlayer, // Use the injected instance
+    val exoPlayer: ExoPlayer
 ) : ViewModel() {
 
+    companion object {
+        private const val TAG = "PlayerViewModel"
+    }
+
     private var videoUris: List<VideoInfo> = emptyList()
-    var currentVideoIndex by mutableIntStateOf(0)
-    var isPlaying by mutableStateOf(true)
+    var currentVideoIndex by mutableIntStateOf(-1)
+
+    // UI State
+    var isPlaying by mutableStateOf(false)
+        private set
     var currentTime by mutableLongStateOf(0L)
     var totalDuration by mutableLongStateOf(0L)
+    var currentItem by mutableStateOf("")
+        private set
 
     private val _orientation = mutableStateOf(Orientation.LANDSCAPE)
     val orientation: State<Orientation> = _orientation
 
-    // Add a MutableStateFlow for errors, so that the UI can react.
     private val _errorEvent = MutableSharedFlow<String>()
     val errorEvent = _errorEvent.asSharedFlow()
 
-    private var updateProgressJob: kotlinx.coroutines.Job? = null
+    private var updateProgressJob: Job? = null
+    private val playerListener = createPlayerListener()
 
-    var isVLCPlayer = false
+    init {
+        // Initialize listener once
+        exoPlayer.addListener(playerListener)
+    }
 
-    private fun setState() {
-        if (isVLCPlayer) {
-            /*mediaPlayer.setEventListener { event ->
-                when (event.type) {
-                    MediaPlayer.Event.Playing -> {
-                        isPlaying = true
-                        startProgressUpdates()
-                    }
-                    MediaPlayer.Event.Paused -> {
-                        isPlaying = false
-                        stopProgressUpdates()
-                    }
-                    MediaPlayer.Event.Stopped -> {
-                        isPlaying = false
-                        stopProgressUpdates()
-                    }
-                    MediaPlayer.Event.EndReached -> {
-                        isPlaying = false
-                        stopProgressUpdates()
-                        viewModelScope.launch {
-                            _errorEvent.emit("Playback Ended")
-                        }
-                    }
-                    MediaPlayer.Event.LengthChanged -> totalDuration = mediaPlayer.length
-                    MediaPlayer.Event.TimeChanged -> currentTime = mediaPlayer.time
-                    MediaPlayer.Event.EncounteredError -> {
-                        stopProgressUpdates()
-                        viewModelScope.launch {
-                            _errorEvent.emit("Playback Error")
-                        }
-                    }
-                }
-            }*/
-        } else {
-            exoPlayer.addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    super.onPlaybackStateChanged(playbackState)
-                    val stateString: String = when (playbackState) {
-                        ExoPlayer.STATE_IDLE -> "ExoPlayer.STATE_IDLE      -"
-                        ExoPlayer.STATE_BUFFERING -> "ExoPlayer.STATE_BUFFERING -"
-                        ExoPlayer.STATE_READY -> "ExoPlayer.STATE_READY     -"
-                        ExoPlayer.STATE_ENDED -> "ExoPlayer.STATE_ENDED     -"
-                        else -> "UNKNOWN_STATE   -"
-                    }
-                    when (playbackState) {
-                        ExoPlayer.STATE_ENDED -> {
-                            isPlaying = false
-                            stopProgressUpdates()
-                            viewModelScope.launch {
-                                _errorEvent.emit("Playback Ended")
-                            }
-                        }
+    private fun createPlayerListener() = object : Player.Listener {
 
-                        Player.STATE_BUFFERING -> {
-                            isPlaying = false
-                            stopProgressUpdates()
-                        }
-
-                        Player.STATE_IDLE -> {
-                            isPlaying = false
-                            stopProgressUpdates()
-                        }
-
-                        Player.STATE_READY -> {
-                            isPlaying = true
-                            startProgressUpdates()
-                        }
-
-                    }
-                    Log.e("ExoPlayer state", "changed state to $stateString")
-                }
-            })
+        override fun onEvents(player: Player, events: Player.Events) {
+            super.onEvents(player, events)
+            Log.e(TAG, "onEvents: ${player.isPlaying}, ${player.currentMediaItem?.requestMetadata?.mediaUri}")
         }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            val stateString: String = when (playbackState) {
+                ExoPlayer.STATE_IDLE -> "ExoPlayer.STATE_IDLE      -"
+                ExoPlayer.STATE_BUFFERING -> "ExoPlayer.STATE_BUFFERING -"
+                ExoPlayer.STATE_READY -> "ExoPlayer.STATE_READY     -"
+                ExoPlayer.STATE_ENDED -> "ExoPlayer.STATE_ENDED     -"
+                else -> "UNKNOWN_STATE   -"
+            }
+            Log.e(TAG, "onPlaybackStateChanged: $stateString")
+            when (playbackState) {
+                Player.STATE_READY -> {
+                    totalDuration = exoPlayer.duration.coerceAtLeast(0L)
+                    startProgressUpdates()
+                }
+                Player.STATE_ENDED -> {
+                    handlePlaybackEnd()
+                }
+                Player.STATE_BUFFERING, Player.STATE_IDLE -> {
+                    stopProgressUpdates()
+                }
+            }
+        }
+
+        override fun onIsPlayingChanged(isPlayerPlaying: Boolean) {
+            isPlaying = isPlayerPlaying
+            if (isPlayerPlaying) startProgressUpdates() else stopProgressUpdates()
+        }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            viewModelScope.launch { _errorEvent.emit("Error: ${error.localizedMessage}") }
+            stopProgressUpdates()
+        }
+    }
+
+    private fun handlePlaybackEnd() {
+        isPlaying = false
+        stopProgressUpdates()
+        viewModelScope.launch { _errorEvent.emit("Playback Ended") }
+        if (hasNextVideo()) playNextVideo()
     }
 
     fun setVideoUris(uris: List<VideoInfo>) {
-        videoUris = uris
+        this.videoUris = uris
     }
 
-    fun setPlayer(isVLC: Boolean) {
-        isVLCPlayer = isVLC
-        setState()
-    }
+    fun playVideo(index: Int) {
+        if (index !in videoUris.indices) return
+        Log.e(TAG, "playVideo: $index, $currentVideoIndex")
 
-    fun hasNextVideo() : Boolean {
-        return currentVideoIndex < videoUris.size - 1
-    }
-
-    fun playNextVideo() {
-        if (hasNextVideo()) {
-            currentVideoIndex++
-            playVideo(videoUris[currentVideoIndex])
+        currentVideoIndex = index
+        val videoInfo = videoUris[index]
+        currentItem = videoInfo.name
+        exoPlayer.apply {
+            stop()
+            clearMediaItems()
+            setMediaItem(MediaItem.fromUri(videoInfo.path))
+            prepare()
+            exoPlayer.playWhenReady = true
         }
-    }
-
-    fun hasPreviousVideo(): Boolean {
-        return currentVideoIndex > 0
-    }
-
-    fun playPreviousVideo() {
-        if (hasPreviousVideo()) {
-            currentVideoIndex--
-            playVideo(videoUris[currentVideoIndex])
-        }
-    }
-
-    fun playVideo(videoInfo: VideoInfo) {
-        if (isVLCPlayer) {
-            /*mediaPlayer.stop()
-            mediaPlayer.media = Media(libVLC, videoInfo.path)
-            mediaPlayer.play()*/
-        } else {
-            exoPlayer.stop()
-            exoPlayer.setMediaItem(MediaItem.fromUri(videoInfo.path))
-            exoPlayer.prepare()
-            exoPlayer.play()
-        }
-        isPlaying = true
-        startProgressUpdates()
     }
 
     fun togglePlayPause() {
-        if (isPlaying) {
-            if (isVLCPlayer) /*mediaPlayer.pause()*/
-            else exoPlayer.pause()
-        } else {
-            if (isVLCPlayer) /*mediaPlayer.play()*/
-            else exoPlayer.play()
-        }
+        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
     }
 
     fun seekTo(position: Long) {
-        if (isVLCPlayer) /*mediaPlayer.time = position*/
-        else exoPlayer.seekTo(position)
-        startProgressUpdates()
+        exoPlayer.seekTo(position)
+        currentTime = position
     }
 
-    fun seekForward(milliseconds: Long) {
-        if (isVLCPlayer) /*mediaPlayer.time += milliseconds*/
-        else exoPlayer.seekTo(exoPlayer.currentPosition + milliseconds)
-    }
+    fun seekForward(ms: Long = 10000) = exoPlayer.seekTo(exoPlayer.currentPosition + ms)
 
-    fun seekBackward(milliseconds: Long) {
-        if (isVLCPlayer) /*mediaPlayer.time -= milliseconds*/
-        else exoPlayer.seekTo(exoPlayer.currentPosition - milliseconds)
-    }
+    fun seekBackward(ms: Long = 10000) = exoPlayer.seekTo(exoPlayer.currentPosition - ms)
+
+    fun hasNextVideo() = currentVideoIndex < videoUris.size - 1
+    fun playNextVideo() = if (hasNextVideo()) playVideo(currentVideoIndex + 1) else Unit
+
+    fun hasPreviousVideo() = currentVideoIndex > 0
+    fun playPreviousVideo() = if (hasPreviousVideo()) playVideo(currentVideoIndex - 1) else Unit
 
     private fun startProgressUpdates() {
         updateProgressJob?.cancel()
         updateProgressJob = viewModelScope.launch {
-            while (isPlaying) {
-                delay(250)
-                currentTime = /*if (isVLCPlayer) mediaPlayer.time else*/ exoPlayer.currentPosition
-                totalDuration = /*if (isVLCPlayer) mediaPlayer.length else*/ exoPlayer.duration
+            while (true) {
+                currentTime = exoPlayer.currentPosition
+                // Update total duration in case of dynamic streams
+                totalDuration = exoPlayer.duration.coerceAtLeast(0L)
+                delay(500) // 500ms is usually sufficient for UI seekbars
             }
         }
     }
@@ -217,10 +169,8 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        //  Do NOT release libVLC and mediaPlayer here.  The Activity is managing their lifecycle.
         updateProgressJob?.cancel()
-//        mediaPlayer.stop()
-//        mediaPlayer.release()
-//        libVLC.release()
+        exoPlayer.removeListener(playerListener)
+        exoPlayer.release()
     }
 }
