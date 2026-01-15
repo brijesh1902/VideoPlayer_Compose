@@ -12,21 +12,30 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.brizz.videoplayer.models.VideoInfo
+import com.brizz.videoplayer.repository.VideoRepository
 import com.brizz.videoplayer.ui.screens.Orientation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    @ApplicationContext val context: Context,
+    private val repository: VideoRepository,
     val exoPlayer: ExoPlayer
 ) : ViewModel() {
 
@@ -48,6 +57,16 @@ class PlayerViewModel @Inject constructor(
     private val _orientation = mutableStateOf(Orientation.LANDSCAPE)
     val orientation: State<Orientation> = _orientation
 
+    val resizeModes = listOf(
+        AspectRatioFrameLayout.RESIZE_MODE_FIT,
+        AspectRatioFrameLayout.RESIZE_MODE_FILL,
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+        AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH,
+        AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT,
+    )
+
+    var resizeModeIndex by mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
+
     private val _errorEvent = MutableSharedFlow<String>()
     val errorEvent = _errorEvent.asSharedFlow()
 
@@ -55,8 +74,14 @@ class PlayerViewModel @Inject constructor(
     private val playerListener = createPlayerListener()
 
     init {
-        // Initialize listener once
         exoPlayer.addListener(playerListener)
+    }
+
+    fun getVideoList(filePath: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            videoUris = repository.videosByPath(filePath)
+            currentVideoIndex = videoUris.indexOf(videoUris.first { it.path == filePath })
+        }
     }
 
     private fun createPlayerListener() = object : Player.Listener {

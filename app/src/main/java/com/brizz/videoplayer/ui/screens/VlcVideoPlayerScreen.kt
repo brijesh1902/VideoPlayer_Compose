@@ -1,20 +1,14 @@
 package com.brizz.videoplayer.ui.screens
 
+import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -29,14 +23,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -65,87 +57,42 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
-import com.brizz.videoplayer.models.VideoInfo
-import com.brizz.videoplayer.utils.EXTRA_CURRENT_INDEX
-import com.brizz.videoplayer.utils.SEEK_FORWARD_TIME
 import com.brizz.videoplayer.viewmodel.PlayerViewModel
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "PlayerActivity"
 
-@AndroidEntryPoint
-class PlayerActivity : ComponentActivity() {
+@Composable
+fun FullScreenEffect() {
 
-    private val viewModel: PlayerViewModel by viewModels()
+    val context = LocalContext.current
+    val activity = context as Activity
 
-    companion object {
-        val videoList = mutableListOf<VideoInfo>()
-        var isVLCPlayer = false
-    }
+    DisposableEffect(Unit) {
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        val window = activity.window
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
 
-        val videoUri = intent?.data?.toString()
-        val initialIndex = intent.getIntExtra(EXTRA_CURRENT_INDEX, 0)
+        // Make content edge-to-edge
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        viewModel.setVideoUris(videoList)
-        viewModel.currentVideoIndex = initialIndex
+        // Hide system bars
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-        setContent {
-            VlcVideoPlayerScreen(
-                initialIndex = initialIndex,
-                viewModel = viewModel,
-                onCompletion = {
-                    if (viewModel.hasNextVideo()) {
-                        viewModel.playNextVideo()
-                    } else {
-                        finish() // Or handle playlist end as needed.
-                    }
-                },
-                onClose = { finish() },
-            )
-        }
-    }
+        controller.hide(WindowInsetsCompat.Type.systemBars())
 
-    override fun onStop() {
-        super.onStop()
-        if (isVLCPlayer) {
-            /* viewModel.mediaPlayer.stop()
-             viewModel.mediaPlayer.release()
-             viewModel.libVLC.release()*/
-        } else {
-            viewModel.exoPlayer.stop()
-            viewModel.exoPlayer.release()
-        }
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            hideSystemUI()
-        }
-    }
-
-    private fun hideSystemUI() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.hide(android.view.WindowInsets.Type.navigationBars())
-            window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
-            window.setDecorFitsSystemWindows(false)
-        } else {
-            window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_IMMERSIVE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION // hide nav bar
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN) // hide status bar
+        onDispose {
+            // Restore when leaving screen
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            WindowCompat.setDecorFitsSystemWindows(window, true)
         }
     }
 }
@@ -154,7 +101,6 @@ class PlayerActivity : ComponentActivity() {
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun VlcVideoPlayerScreen(
-    initialIndex: Int,
     viewModel: PlayerViewModel,
     onCompletion: () -> Unit,
     onClose: () -> Unit,
@@ -175,7 +121,7 @@ fun VlcVideoPlayerScreen(
     }
 
     // Initial playback
-    LaunchedEffect(initialIndex) {
+    LaunchedEffect(Unit) {
         hideControlsDelayed()
         viewModel.playVideo(viewModel.currentVideoIndex)
     }
@@ -191,7 +137,8 @@ fun VlcVideoPlayerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
     ) {
         // VLC video surface
         AndroidView(
@@ -209,8 +156,9 @@ fun VlcVideoPlayerScreen(
             update = { view ->
                 // This ensures that if the player instance is swapped,
                 // the view is still pointing to the right one.
-                if (view.player != viewModel.exoPlayer) {
-                    view.player = viewModel.exoPlayer
+                view.apply {
+                    player = viewModel.exoPlayer
+                    resizeMode = viewModel.resizeModes[viewModel.resizeModeIndex]
                 }
             },
             modifier = Modifier
@@ -237,11 +185,8 @@ fun VlcVideoPlayerScreen(
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            // Release or cleanup if needed
-        }
-    }
+    FullScreenEffect()
+
 }
 
 @Composable
@@ -266,14 +211,14 @@ fun BoxScope.UIComponent(
 
     // Center controls
 //    if (viewModel.isVLCPlayer)
-    AnimatedVisibility(
-        visible = controlsVisible,
-        modifier = Modifier.align(Alignment.Center),
-        enter = fadeIn(),
-        exit = fadeOut()
-    ) {
-        CenterControls(viewModel = viewModel)
-    }
+//    AnimatedVisibility(
+//        visible = controlsVisible,
+//        modifier = Modifier.align(Alignment.Center),
+//        enter = fadeIn(),
+//        exit = fadeOut()
+//    ) {
+//
+//    }
 
     // Bottom bar
 //    if (viewModel.isVLCPlayer)
@@ -308,7 +253,7 @@ fun TopBarControls(videoTitle: String, onClose: () -> Unit) {
                     .padding(16.dp),
                 onClick = onClose
             ) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
             }
             Text(
                 text = videoTitle,
@@ -328,7 +273,7 @@ fun CenterControls(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(100.dp),
+            .height(80.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceAround
     ) {
@@ -344,14 +289,14 @@ fun CenterControls(
         ) {
             Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = Color.White)
         }
-        IconButton(
-            modifier = commonModifier,
-            onClick = { viewModel.seekBackward(SEEK_FORWARD_TIME) }) {
-            Icon(Icons.Filled.FastRewind, contentDescription = "Rewind", tint = Color.White)
-        }
+//        IconButton(
+//            modifier = commonModifier,
+//            onClick = { viewModel.seekBackward(SEEK_FORWARD_TIME) }) {
+//            Icon(Icons.Filled.FastRewind, contentDescription = "Rewind", tint = Color.White)
+//        }
         IconButton(
             modifier = Modifier
-                .size(80.dp)
+                .size(60.dp)
                 .background(Color.Blue, shape = CircleShape),
             onClick = { viewModel.togglePlayPause() }
         ) {
@@ -362,17 +307,32 @@ fun CenterControls(
                 modifier = Modifier.size(60.dp)
             )
         }
-        IconButton(
-            modifier = commonModifier,
-            onClick = { viewModel.seekForward(SEEK_FORWARD_TIME) }) {
-            Icon(Icons.Filled.FastForward, contentDescription = "Forward", tint = Color.White)
-        }
+//        IconButton(
+//            modifier = commonModifier,
+//            onClick = { viewModel.seekForward(SEEK_FORWARD_TIME) }) {
+//            Icon(Icons.Filled.FastForward, contentDescription = "Forward", tint = Color.White)
+//        }
         IconButton(
             modifier = commonModifier,
             onClick = { viewModel.playNextVideo() },
             enabled = viewModel.hasNextVideo()
         ) {
             Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = Color.White)
+        }
+
+        IconButton(
+            modifier = Modifier
+                .padding(10.dp)
+                .size(48.dp),
+            onClick = {
+                viewModel.resizeModeIndex = (viewModel.resizeModeIndex + 1) % viewModel.resizeModes.size
+            }
+        ) {
+            Icon(
+                imageVector = Icons.Default.AspectRatio,
+                contentDescription = "Change Aspect Ratio",
+                tint = Color.White
+            )
         }
     }
 }
@@ -383,7 +343,7 @@ fun BottomBarControls(viewModel: PlayerViewModel) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .requiredHeight(80.dp)
+//            .requiredHeight(80.dp)
             .background(Color.Black.copy(alpha = 0.6f))
             .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -441,6 +401,7 @@ fun BottomBarControls(viewModel: PlayerViewModel) {
                 textAlign = TextAlign.Center
             )
         }
+        CenterControls(viewModel = viewModel)
     }
 }
 

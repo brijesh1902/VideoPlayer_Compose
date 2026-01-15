@@ -79,6 +79,7 @@ dependencies {
     implementation(libs.androidx.media3.ui.compose)
 
     implementation(libs.hilt.android)
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
     ksp(libs.hilt.android.compiler)
 
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -89,7 +90,12 @@ dependencies {
     implementation(libs.androidx.core.splashscreen) // Use the latest stable or beta version
 
 //    implementation(libs.libvlc.all) // Use the latest stable version
-//    implementation("com.github.anilbeesetti.nextlib:nextlib-media3ext:0.6.0")
 
+    // Room runtime
+    implementation("androidx.room:room-runtime:2.6.1")
+    // Kotlin extensions + Coroutines support
+    implementation("androidx.room:room-ktx:2.6.1")
+    // Annotation processor (KSP - recommended)
+    ksp("androidx.room:room-compiler:2.6.1")
 
 }

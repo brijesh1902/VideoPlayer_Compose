@@ -30,7 +30,7 @@ object PlayerModule {
             // This allows ExoPlayer to try other decoders if the primary hardware one fails
             setEnableDecoderFallback(true)
             // PREFER_SOFTWARE can be a temporary test to see if it fixes the crash
-            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         }
 
         // 2. Comprehensive MediaSource Factory for DASH, HLS, and SmoothStreaming
@@ -67,7 +67,8 @@ object PlayerModule {
                         MimeTypes.VIDEO_MP2T,
                         MimeTypes.VIDEO_MATROSKA,
                         MimeTypes.VIDEO_H265,
-                        MimeTypes.VIDEO_H264
+                        MimeTypes.VIDEO_H264,
+                        MimeTypes.VIDEO_FLV
                     )
                     .build()
             }
